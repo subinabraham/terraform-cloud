@@ -6,6 +6,12 @@ variable "project_id" {
   type        = string
 }
 
+
+variable "credentials_json" {
+  type = string
+}
+
+
 variable "region" {
   description = "The default region for resources"
   type        = string

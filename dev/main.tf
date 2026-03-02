@@ -10,8 +10,9 @@ resource "google_bigquery_dataset" "dataset" {
 
   labels = {
     environment = "dev"
-    owner       = "subin"
+    owner       = "subinabraham"
     org         = "coned"
+    
 
 
   }

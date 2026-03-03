@@ -105,7 +105,7 @@ module "curated" {
   description   = "Curated (gold) layer for ${each.value} (dev)"
   labels        = { env = "dev", layer = "curated", owner = each.value }
 
-  default_table_expiration_ms     = null
+  default_table_expiration_ms     = 0
   default_partition_expiration_ms = null
   max_time_travel_hours           = 168
   storage_billing_model           = "LOGICAL"

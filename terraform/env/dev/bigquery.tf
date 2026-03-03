@@ -1,0 +1,113 @@
+
+############################################################
+# BigQuery Dataset
+############################################################
+resource "google_bigquery_dataset" "dataset" {
+  dataset_id                  = var.dataset_id
+  location                    = "US"
+  description                 = "Example dataset created with Terraform"
+  delete_contents_on_destroy  = true
+
+  labels = {
+    environment = "dev"
+    owner       = "subinabraham"
+    org         = "coned"
+    
+
+
+  }
+}
+
+############################################################
+# BigQuery Table
+############################################################
+resource "google_bigquery_table" "table" {
+  dataset_id = google_bigquery_dataset.dataset.dataset_id
+  table_id   = var.table_id
+
+  schema = jsonencode([
+    {
+      name = "id"
+      type = "STRING"
+      mode = "REQUIRED"
+    },
+    {
+      name = "timestamp"
+      type = "TIMESTAMP"
+      mode = "REQUIRED"
+    },
+    {
+      name = "value"
+      type = "FLOAT"
+      mode = "NULLABLE"
+    }
+  ])
+
+  labels = {
+    environment = "dev"
+    owner       = "terraform"
+  }
+}
+
+##########################################################
+locals {
+  domains = ["sales", "inventory"] # extend as needed
+}
+
+# RAW datasets
+module "raw" {
+  for_each   = toset(local.domains)
+  source     = "../../modules/bigquery"
+  project_id = var.project_id
+  dataset_id = "${each.value}_raw"
+  location   = "US"
+
+  friendly_name = "${title(each.value)} Raw"
+  description   = "Raw ingestion layer for ${each.value} (dev)"
+  labels        = { env = "dev", layer = "raw", owner = each.value }
+
+  default_table_expiration_ms     = 0
+  default_partition_expiration_ms = null
+  max_time_travel_hours           = 168
+  storage_billing_model           = "LOGICAL"
+  encryption_key                  = null
+  delete_contents_on_destroy      = false
+}
+
+# STAGING datasets
+module "staging" {
+  for_each   = toset(local.domains)
+  source     = "../../modules/bigquery"
+  project_id = var.project_id
+  dataset_id = "${each.value}_staging"
+  location   = "US"
+
+  friendly_name = "${title(each.value)} Staging"
+  description   = "Staging layer for ${each.value} (dev)"
+  labels        = { env = "dev", layer = "staging", owner = each.value }
+
+  default_table_expiration_ms     = 604800000 # 7 days
+  default_partition_expiration_ms = null
+  max_time_travel_hours           = 168
+  storage_billing_model           = "LOGICAL"
+  encryption_key                  = null
+}
+
+# CURATED datasets
+module "curated" {
+  for_each   = toset(local.domains)
+  source     = "../../modules/bigquery"
+  project_id = var.project_id
+  dataset_id = "${each.value}_curated"
+  location   = "US"
+
+  friendly_name = "${title(each.value)} Curated"
+  description   = "Curated (gold) layer for ${each.value} (dev)"
+  labels        = { env = "dev", layer = "curated", owner = each.value }
+
+  default_table_expiration_ms     = null
+  default_partition_expiration_ms = null
+  max_time_travel_hours           = 168
+  storage_billing_model           = "LOGICAL"
+  encryption_key                  = null
+}

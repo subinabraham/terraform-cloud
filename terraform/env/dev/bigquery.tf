@@ -66,7 +66,7 @@ module "raw" {
   description   = "Raw ingestion layer for ${each.value} (dev)"
   labels        = { env = "dev", layer = "raw", owner = each.value }
 
-  default_table_expiration_ms     = 0
+  #default_table_expiration_ms     = 0
   default_partition_expiration_ms = null
   max_time_travel_hours           = 168
   storage_billing_model           = "LOGICAL"
@@ -86,7 +86,7 @@ module "staging" {
   description   = "Staging layer for ${each.value} (dev)"
   labels        = { env = "dev", layer = "staging", owner = each.value }
 
-  default_table_expiration_ms     = 604800000 # 7 days
+  #default_table_expiration_ms     = 604800000 # 7 days
   default_partition_expiration_ms = null
   max_time_travel_hours           = 168
   storage_billing_model           = "LOGICAL"
@@ -105,7 +105,7 @@ module "curated" {
   description   = "Curated (gold) layer for ${each.value} (dev)"
   labels        = { env = "dev", layer = "curated", owner = each.value }
 
-  default_table_expiration_ms     = 0
+  #default_table_expiration_ms     = 0
   default_partition_expiration_ms = null
   max_time_travel_hours           = 168
   storage_billing_model           = "LOGICAL"

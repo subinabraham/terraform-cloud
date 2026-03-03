@@ -42,13 +42,13 @@ variable "delete_contents_on_destroy" {
   type        = bool
   default     = false
 }
-
+/*
 variable "default_table_expiration_ms" {
   description = "Default expiration for tables (ms). Null or 0 = never."
   type        = number
   default     = null
 }
-
+*/
 variable "default_partition_expiration_ms" {
   description = "Default expiration for partitions in partitioned tables (ms)."
   type        = number

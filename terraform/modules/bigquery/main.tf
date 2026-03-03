@@ -10,7 +10,7 @@ resource "google_bigquery_dataset" "this" {
   delete_contents_on_destroy = var.delete_contents_on_destroy
 
   # Hygiene defaults
-  default_table_expiration_ms     = var.default_table_expiration_ms
+  #default_table_expiration_ms     = var.default_table_expiration_ms
   default_partition_expiration_ms = var.default_partition_expiration_ms
 
   # Advanced tuning

@@ -1,0 +1,270 @@
+
+locals {
+  subnet_ue1_range_01 = "10.1.0.0/23"    ## Enter the CIDR range for us-east1 subnet_ue1
+  subnet_uc1_range_01 = "10.2.0.0/23"    ## Enter the CIDR range for us-central1 subnet_uc1
+  subnet_psc_range_01 = "10.3.0.0/28"    ## Enter the CIDR range for us-east1 psc subnet
+  psc_ip              = "10.10.0.100"    ## Enter the ip to be reserved for psc endpoint
+}
+
+# variable "project_id" {
+#   description = "The ID of the project"
+#   type        = string
+# }
+
+# ------------------------------------------------------------------------------
+# 1. VPC and Subnets
+# ------------------------------------------------------------------------------
+
+resource "google_compute_network" "vpc" {
+  name                    = "vpc-dev-nonconnected-eda"
+  auto_create_subnetworks = false
+  project                 = var.project_id
+}
+
+resource "google_compute_subnetwork" "subnet_ue1_01" {
+  name                     = "subnet-dev-edap-us1-01"
+  ip_cidr_range            = local.subnet_ue1_range_01
+  region                   = "us-east1"
+  network                  = google_compute_network.vpc.id
+  private_ip_google_access = true
+  project                  = var.project_id
+  depends_on = [ google_compute_network.vpc ]
+}
+
+resource "google_compute_subnetwork" "subnet_uc1_01" {
+  name                     = "subnet-dev-edap-usc-01"
+  ip_cidr_range            = local.subnet_uc1_range_01
+  region                   = "us-central1"
+  network                  = google_compute_network.vpc.id
+  private_ip_google_access = true
+  project                  = var.project_id
+  depends_on = [ google_compute_network.vpc ]
+}
+
+resource "google_compute_subnetwork" "subnet_psc_01" {
+  name                     = "subnet-psc-dev-edap-01"
+  ip_cidr_range            = local.subnet_psc_range_01
+  region                   = "us-east1"
+  network                  = google_compute_network.vpc.id
+  private_ip_google_access = true
+  project                  = var.project_id
+  depends_on = [ google_compute_network.vpc ]
+}
+
+
+# ------------------------------------------------------------------------------
+# 2. PSC Endpoint (Global Bundle for all-google-apis)
+# ------------------------------------------------------------------------------
+
+# We first reserve the global internal IP address to ensure it is allocated.
+# Note: For Global PSC to Google APIs, we use a Global Address of type INTERNAL.
+resource "google_compute_global_address" "psc_ip" {
+  name          = "psc-google-apis-ip"
+  address_type  = "INTERNAL"
+  purpose       = "PRIVATE_SERVICE_CONNECT"
+  network       = google_compute_network.vpc.id
+  address       = local.psc_ip
+  project       = var.project_id
+  depends_on    = [ google_compute_network.vpc ]
+}
+
+# The Global Forwarding Rule for the PSC Endpoint
+resource "google_compute_global_forwarding_rule" "psc_endpoint" {
+  name                  = "pscendpointdeveda"
+  target                = "vpc-sc"
+  network               = google_compute_network.vpc.id
+  ip_address            = google_compute_global_address.psc_ip.id
+  load_balancing_scheme = "" # Required empty for PSC
+  project               = var.project_id
+  depends_on = [ google_compute_network.vpc ]
+}
+
+
+
+# ------------------------------------------------------------------------------
+# 3. DNS Configuration
+# ------------------------------------------------------------------------------
+
+resource "google_dns_managed_zone" "private_googleapis" {
+  name        = "dnszone-dev-googleapis"
+  dns_name    = "googleapis.com."
+  description = "Private DNS zone for global dev psc for googleapis.com"
+  visibility  = "private"
+  project     = var.project_id
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.vpc.id
+    }
+  }
+  depends_on = [ google_compute_network.vpc ]
+}
+
+# A Record: *.googleapis.com -> psc_ip
+resource "google_dns_record_set" "googleapis_a" {
+  name         = "*.googleapis.com."
+  managed_zone = google_dns_managed_zone.private_googleapis.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.psc_ip.address]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.private_googleapis ]
+}
+# CNAME Record: private.googleapis.com -> googleapis.com
+# Note: This matches your request exactly, though typically this is configured
+# the other way around (googleapis.com -> private.googleapis.com).
+resource "google_dns_record_set" "googleapis_cname" {
+  name         = "private.googleapis.com."
+  managed_zone = google_dns_managed_zone.private_googleapis.name
+  type         = "CNAME"
+  ttl          = 300
+  rrdatas      = ["googleapis.com."]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.private_googleapis ]
+}
+
+#-----------------------------------------------------------
+# 3.1DNS configuration for vertex AI workbench networking with PSC 
+# Cloud.google.com
+#-----------------------------------------------
+resource "google_dns_managed_zone" "cloud-google-psc-wb" {
+  name        = "cloud-google-psc-wb"
+  dns_name    = "cloud.google.com."
+  description = "Private DNS zone for global dev psc used by Vertex AI workbench instances for cloud.google.com"
+  visibility  = "private"
+  project     = var.project_id
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.vpc.id
+    }
+  }
+  depends_on = [ google_compute_network.vpc ]
+}
+
+# A Record: *.notebooks.cloud.google.com -> psc_ip
+resource "google_dns_record_set" "cloud-google-psc-wb-a" {
+  name         = "*.notebooks.cloud.google.com."
+  managed_zone = google_dns_managed_zone.cloud-google-psc-wb.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.psc_ip.address]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.cloud-google-psc-wb ]
+}
+
+# A Record: notebooks.cloud.google.com. -> psc_ip
+resource "google_dns_record_set" "cloud-google-psc-wb-b" {
+  name         = "notebooks.cloud.google.com."
+  managed_zone = google_dns_managed_zone.cloud-google-psc-wb.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.psc_ip.address]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.cloud-google-psc-wb ]
+}
+
+#----------------------------------------------------------------
+#3.2   GCR.IO DNS entries
+#---------------------------------------
+
+resource "google_dns_managed_zone" "gcr-io-psc-wb" {
+  name        = "gcr-io-psc-wb"
+  dns_name    = "gcr.io."
+  description = "Private DNS zone for global dev psc used by Vertex AI workbench instances for gcr.io"
+  visibility  = "private"
+  project     = var.project_id
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.vpc.id
+    }
+  }
+  depends_on = [ google_compute_network.vpc ]
+}
+
+# A Record: *.gcr.io -> wb_psc_ip
+resource "google_dns_record_set" "gcr-io-psc-wb-a" {
+  name         = "*.gcr.io."
+  managed_zone = google_dns_managed_zone.gcr-io-psc-wb.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.psc_ip.address]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.gcr-io-psc-wb ]
+}
+
+#-----------------------------------------
+#3.3 Google user content DNS entries
+#-----------------------------------
+resource "google_dns_managed_zone" "google-user-content-psc-wb" {
+  name        = "google-user-content-psc-wb"
+  dns_name    = "googleusercontent.com."
+  description = "Private DNS zone for global dev psc used by Vertex AI workbench instances for googleusercontent.com."
+  visibility  = "private"
+  project     = var.project_id
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.vpc.id
+    }
+  }
+  depends_on = [ google_compute_network.vpc ]
+}
+
+# A Record: *.googleusercontent.com. -> wb_psc_ip
+resource "google_dns_record_set" "google-user-content-psc-wb-a" {
+  name         = "*.googleusercontent.com."
+  managed_zone = google_dns_managed_zone.google-user-content-psc-wb.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.psc_ip.address]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.google-user-content-psc-wb]
+}
+
+#----------------------------------------------------------------------------
+#3.4 DNS entries for pkg.dev - will be used by vertex Ai workbench instances
+#-------------------------------------------------------------------------------
+
+resource "google_dns_managed_zone" "pkg-dev-psc-wb" {
+  name        = "pkg-dev-psc-wb"
+  dns_name    = "pkg.dev."
+  description = "Private DNS zone for global dev psc used by Vertex AI workbench instances for pkg.dev."
+  visibility  = "private"
+  project     = var.project_id
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.vpc.id
+    }
+  }
+  depends_on = [ google_compute_network.vpc ]
+}
+
+# A Record: *.googleusercontent.com. -> wb_psc_ip
+resource "google_dns_record_set" "pkg-dev-psc-wb-a" {
+  name         = "*.pkg.dev."
+  managed_zone = google_dns_managed_zone.pkg-dev-psc-wb.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_global_address.psc_ip.address]
+  project      = var.project_id
+  depends_on = [ google_dns_managed_zone.pkg-dev-psc-wb]
+}
+
+
+
+
+# ------------------------------------------------------------------------------
+# 4. Network Attachment (For Vertex AI)
+# ------------------------------------------------------------------------------
+
+resource "google_compute_network_attachment" "vertex_attachment" {
+  name                  = "network-attach-dev-eda"
+  region                = "us-east1"
+  connection_preference = "ACCEPT_AUTOMATIC"
+  subnetworks           = [google_compute_subnetwork.subnet_psc_01.self_link]
+  project               = var.project_id
+  depends_on = [google_compute_subnetwork.subnet_psc_01]
+}
